@@ -59,6 +59,7 @@ import android.app.admin.DevicePolicyManager;
 import android.content.BroadcastReceiver;
 import android.content.ComponentCallbacks2;
 import android.content.ComponentName;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -71,6 +72,7 @@ import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.UserInfo;
 import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.database.ContentObserver;
 import android.graphics.Bitmap;
 import android.graphics.Point;
 import android.graphics.PointF;
@@ -136,6 +138,7 @@ import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 import com.android.internal.statusbar.IStatusBarService;
 import com.android.internal.statusbar.NotificationVisibility;
 import com.android.internal.statusbar.StatusBarIcon;
+import com.android.internal.util.kcuf.DeviceUtils;
 import com.android.internal.widget.LockPatternUtils;
 import com.android.internal.widget.MessagingGroup;
 import com.android.internal.widget.MessagingMessage;
@@ -478,10 +481,42 @@ public class StatusBar extends SystemUI implements DemoMode,
 
     protected final H mHandler = createHandler();
 
+    private class NavigationBarObserver extends ContentObserver {
+        NavigationBarObserver(Handler handler) {
+            super(handler);
+        }
+
+        void observe() {
+            mContext.getContentResolver().registerContentObserver(Settings.System.getUriFor(
+                    Settings.System.NAVIGATION_BAR_SHOW),
+                    false, this, UserHandle.USER_ALL);
+            update();
+        }
+
+        @Override
+        public void onChange(boolean selfChange) {
+            update();
+        }
+
+        public void update() {
+            int showNavBar = Settings.System.getIntForUser(
+                    mContext.getContentResolver(), Settings.System.NAVIGATION_BAR_SHOW,
+                    -1, mLockscreenUserManager.getCurrentUserId());
+            if (showNavBar != -1){
+                boolean showNavBarBool = showNavBar == 1;
+                if (showNavBarBool !=  mShowNavBar){
+                    updateNavigationBar();
+                }
+            }
+        }
+    }
+    private NavigationBarObserver mNavigationBarObserver = new NavigationBarObserver(mHandler);
+
     private int mInteractingWindows;
     private boolean mAutohideSuspended;
     private int mStatusBarMode;
     private int mMaxKeyguardNotifications;
+    private boolean mShowNavBar;
 
     private ViewMediatorCallback mKeyguardViewMediatorCallback;
     protected ScrimController mScrimController;
@@ -771,6 +806,8 @@ public class StatusBar extends SystemUI implements DemoMode,
         // Lastly, call to the icon policy to install/update all the icons.
         mIconPolicy = new PhoneStatusBarPolicy(mContext, mIconController);
         mSignalPolicy = new StatusBarSignalPolicy(mContext, mIconController);
+
+        mNavigationBarObserver.observe();
 
         mUnlockMethodCache = UnlockMethodCache.getInstance(mContext);
         mUnlockMethodCache.addListener(this);
@@ -3156,6 +3193,7 @@ public class StatusBar extends SystemUI implements DemoMode,
         updateNotificationViews();
         mMediaManager.clearCurrentMediaNotification();
         setLockscreenUser(newUserId);
+        mNavigationBarObserver.update();
     }
 
     @Override
@@ -4974,6 +5012,25 @@ public class StatusBar extends SystemUI implements DemoMode,
 
         public boolean shouldAnimateScreenOff() {
             return mAnimateScreenOff;
+        }
+    }
+
+    private void updateNavigationBar() {
+        mShowNavBar = DeviceUtils.deviceSupportNavigationBarForUser(mContext,
+                              mLockscreenUserManager.getCurrentUserId());
+        if (mShowNavBar) {
+            if (mNavigationBarView == null) {
+                    mNavigationBarView =
+                        (NavigationBarView) View.inflate(mContext, R.layout.navigation_bar, null);
+                createNavigationBar();
+                checkBarModes();
+                notifyUiVisibilityChanged(mSystemUiVisibility);
+            }
+        } else {
+            if (mNavigationBarView != null){
+                mWindowManager.removeViewImmediate(mNavigationBarView);
+                mNavigationBarView = null;
+            }
         }
     }
 
