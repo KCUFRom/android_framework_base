@@ -155,4 +155,6 @@ oneway interface IStatusBar
      * KCUF
      */
     void toggleCameraFlash();
+    void toggleCameraFlashOn();
+    void toggleCameraFlashOff();
 }
