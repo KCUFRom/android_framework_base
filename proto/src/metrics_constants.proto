@@ -6435,7 +6435,7 @@ message MetricsEvent {
     // END OF AOSP CONSTANTS
 
     // KCUFSettings constant
-    KCUF_SETTINGS = 1500;
+    KCUF_SETTINGS = 1700;
 
   }
 }
