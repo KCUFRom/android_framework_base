@@ -91,6 +91,8 @@ import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map.Entry;
@@ -146,6 +148,7 @@ public class KeyguardUpdateMonitor implements TrustManager.TrustListener {
     private static final int MSG_ASSISTANT_STACK_CHANGED = 335;
     private static final int MSG_FINGERPRINT_AUTHENTICATION_CONTINUE = 336;
     private static final int MSG_DEVICE_POLICY_MANAGER_STATE_CHANGED = 337;
+    private static final int MSG_LOCALE_CHANGED = 500;
 
     /** Fingerprint state: Not listening to fingerprint. */
     private static final int FINGERPRINT_STATE_STOPPED = 0;
@@ -337,6 +340,9 @@ public class KeyguardUpdateMonitor implements TrustManager.TrustListener {
                 case MSG_FINGERPRINT_AUTHENTICATION_CONTINUE:
                     updateFingerprintListeningState();
                     break;
+                case MSG_LOCALE_CHANGED:
+                    handleLocaleChanged();
+                   break;
                 case MSG_DEVICE_POLICY_MANAGER_STATE_CHANGED:
                     updateLogoutEnabled();
                     break;
@@ -448,6 +454,16 @@ public class KeyguardUpdateMonitor implements TrustManager.TrustListener {
         List<SubscriptionInfo> sil = mSubscriptionInfo;
         if (sil == null || forceReload) {
             sil = mSubscriptionManager.getActiveSubscriptionInfoList();
+            if ( sil != null ) {
+                Collections.sort(sil, new Comparator<SubscriptionInfo>() {
+                    @Override
+                    public int compare(SubscriptionInfo lhs, SubscriptionInfo rhs) {
+                        return lhs.getSimSlotIndex() == rhs.getSimSlotIndex()
+                                ? lhs.getSubscriptionId() - rhs.getSubscriptionId()
+                                : lhs.getSimSlotIndex() - rhs.getSimSlotIndex();
+                    }
+                });
+            }
         }
         if (sil == null) {
             // getActiveSubscriptionInfoList was null callers expect an empty list.
@@ -827,6 +843,8 @@ public class KeyguardUpdateMonitor implements TrustManager.TrustListener {
                 }
                 mHandler.sendMessage(
                         mHandler.obtainMessage(MSG_SERVICE_STATE_CHANGE, subId, 0, serviceState));
+            } else if (Intent.ACTION_LOCALE_CHANGED.equals(action)) {
+                mHandler.sendEmptyMessage(MSG_LOCALE_CHANGED);
             } else if (DevicePolicyManager.ACTION_DEVICE_POLICY_MANAGER_STATE_CHANGED.equals(
                     action)) {
                 mHandler.sendEmptyMessage(MSG_DEVICE_POLICY_MANAGER_STATE_CHANGED);
@@ -1185,6 +1203,7 @@ public class KeyguardUpdateMonitor implements TrustManager.TrustListener {
         filter.addAction(Intent.ACTION_BATTERY_CHANGED);
         filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
         filter.addAction(Intent.ACTION_AIRPLANE_MODE_CHANGED);
+        filter.addAction(Intent.ACTION_LOCALE_CHANGED);
         filter.addAction(TelephonyIntents.ACTION_SIM_STATE_CHANGED);
         filter.addAction(TelephonyIntents.ACTION_SERVICE_STATE_CHANGED);
         filter.addAction(TelephonyManager.ACTION_PHONE_STATE_CHANGED);
@@ -1295,6 +1314,18 @@ public class KeyguardUpdateMonitor implements TrustManager.TrustListener {
             setFingerprintRunningState(FINGERPRINT_STATE_RUNNING);
         }
     }
+
+    /**
+    * Handle {@link #MSG_LOCALE_CHANGED}
+    */
+   private void handleLocaleChanged() {
+       for (int j = 0; j < mCallbacks.size(); j++) {
+           KeyguardUpdateMonitorCallback cb = mCallbacks.get(j).get();
+           if (cb != null) {
+               cb.onRefreshCarrierInfo();
+           }
+       }
+   }
 
     public boolean isUnlockWithFingerprintPossible(int userId) {
         return mFpm != null && mFpm.isHardwareDetected() && !isFingerprintDisabled(userId)
@@ -1585,6 +1616,7 @@ public class KeyguardUpdateMonitor implements TrustManager.TrustListener {
             KeyguardUpdateMonitorCallback cb = mCallbacks.get(j).get();
             if (cb != null) {
                 cb.onRefreshCarrierInfo();
+                cb.onServiceStateChanged(subId, serviceState);
             }
         }
     }
@@ -1859,6 +1891,36 @@ public class KeyguardUpdateMonitor implements TrustManager.TrustListener {
             }
         }
     };
+
+    public boolean isOOS()
+    {
+        boolean ret = true;
+        int phoneCount = TelephonyManager.getDefault().getPhoneCount();
+
+        for (int phoneId = 0; phoneId < phoneCount; phoneId++) {
+            int[] subId = SubscriptionManager.getSubId(phoneId);
+            if (subId != null && subId.length >= 1) {
+                if (DEBUG) Log.d(TAG, "slot id:" + phoneId + " subId:" + subId[0]);
+                ServiceState state = mServiceStates.get(subId[0]);
+                if (state != null) {
+                    if (state.isEmergencyOnly())
+                        ret = false;
+                    if ((state.getVoiceRegState() != ServiceState.STATE_OUT_OF_SERVICE)
+                            && (state.getVoiceRegState() != ServiceState.STATE_POWER_OFF))
+                        ret = false;
+                    if (DEBUG) {
+                        Log.d(TAG, "is emergency: " + state.isEmergencyOnly());
+                        Log.d(TAG, "voice state: " + state.getVoiceRegState());
+                    }
+                } else {
+                    if (DEBUG) Log.d(TAG, "state is NULL");
+                }
+            }
+        }
+
+        if (DEBUG) Log.d(TAG, "is Emergency supported: " + ret);
+        return ret;
+    }
 
     /**
      * @return true if and only if the state has changed for the specified {@code slotId}

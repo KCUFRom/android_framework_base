@@ -2604,8 +2604,8 @@ class DatabaseHelper extends SQLiteOpenHelper {
             for (int phoneId = 0;
                     phoneId < TelephonyManager.getDefault().getPhoneCount(); phoneId++) {
                 mode = TelephonyManager.getTelephonyProperty(phoneId,
-                        "ro.telephony.default_network",
-                        Integer.toString(RILConstants.PREFERRED_NETWORK_MODE));
+                         "ro.telephony.default_network",
+                         Integer.toString(RILConstants.NETWORK_MODE_WCDMA_PREF));
                 if (phoneId == 0) {
                     val = mode;
                 } else {
@@ -2630,6 +2630,9 @@ class DatabaseHelper extends SQLiteOpenHelper {
                     R.integer.def_heads_up_enabled);
 
             loadSetting(stmt, Settings.Global.DEVICE_NAME, getDefaultDeviceName());
+
+	    loadStringSetting(stmt, Settings.Global.NTP_SERVER_2,
+                    R.string.def_ntp_server_2);
 
             /*
              * IMPORTANT: Do not add any more upgrade steps here as the global,
